@@ -98,13 +98,13 @@ Defines the geographic context for each sale, supporting regional and market ana
 ```mermaid
 erDiagram
 	customer {
-		string customer_id
+		string customer_id PK
 		string customer_key
 		string customer_name
 		string segment
 	}
 	location {
-		string location_id
+		string location_id PK
 		string country
 		string city
 		string state
@@ -112,19 +112,19 @@ erDiagram
 		string region
 	}
 	product {
-		string product_id
+		string product_id PK
 		string category
 		string sub_category
 		string product_name
 	}
 	sales {
-		string sales_id
+		string sales_id PK
 		string order_id
 		datetime order_date
 		string ship_mode
-		string product_id
-		string customer_id
-		string location_id
+		string product_id FK
+		string customer_id FK
+		string location_id FK
 		datetime ship_date
 		double sales
 	}
@@ -136,13 +136,13 @@ erDiagram
 ## Table Details
 
 ### customer
-* customer_id (string)
+* customer_id (string, PK)
 * customer_key (string)
 * customer_name (string)
 * segment (string)
 
 ### location
-* location_id (string)
+* location_id (string, PK)
 * country (string)
 * city (string)
 * state (string)
@@ -150,19 +150,19 @@ erDiagram
 * region (string)
 
 ### product
-* product_id (string)
+* product_id (string, PK)
 * category (string)
 * sub_category (string)
 * product_name (string)
 
 ### sales
-* sales_id (string)
+* sales_id (string, PK)
 * order_id (string)
 * order_date (datetime)
 * ship_mode (string)
-* product_id (string)
-* customer_id (string)
-* location_id (string)
+* product_id (string, FK -> product.product_id)
+* customer_id (string, FK -> customer.customer_id)
+* location_id (string, FK -> location.location_id)
 * ship_date (datetime)
 * sales (double)
 
