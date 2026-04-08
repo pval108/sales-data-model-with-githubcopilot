@@ -1,87 +1,3 @@
-# Sales Semantic Model ERD
-
-## Entity Relationship Diagram (ERD)
-
-```mermaid
-erDiagram
-	customer {
-		string customer_id
-		string customer_key
-		string customer_name
-		string segment
-	}
-	location {
-		string location_id
-		string country
-		string city
-		string state
-		int64 postal_code
-		string region
-	}
-	product {
-		string product_id
-		string category
-		string sub_category
-		string product_name
-	}
-	sales {
-		string sales_id
-		string order_id
-		datetime order_date
-		string ship_mode
-		string product_id
-		string customer_id
-		string location_id
-		datetime ship_date
-		double sales
-	}
-	sales }|..|| customer : "customer_id"
-	sales }|..|| location : "location_id"
-	sales }|..|| product : "product_id"
-	sales }|..|| LocalDateTable_bd78f57f-f782-49cb-bedf-842bb2cba595 : "order_date"
-	sales }|..|| LocalDateTable_752f2240-7e55-461c-a057-b5b99b3a6120 : "ship_date"
-```
-
-## Table Details
-
-### customer
-* customer_id (string)
-* customer_key (string)
-* customer_name (string)
-* segment (string)
-
-### location
-* location_id (string)
-* country (string)
-* city (string)
-* state (string)
-* postal_code (int64)
-* region (string)
-
-### product
-* product_id (string)
-* category (string)
-* sub_category (string)
-* product_name (string)
-
-### sales
-* sales_id (string)
-* order_id (string)
-* order_date (datetime)
-* ship_mode (string)
-* product_id (string)
-* customer_id (string)
-* location_id (string)
-* ship_date (datetime)
-* sales (double)
-
-## Relationships
-
-- sales.customer_id → customer.customer_id
-- sales.location_id → location.location_id
-- sales.product_id → product.product_id
-- sales.order_date → LocalDateTable_bd78f57f-f782-49cb-bedf-842bb2cba595.Date
-- sales.ship_date → LocalDateTable_752f2240-7e55-461c-a057-b5b99b3a6120.Date
 
 # Sales Analytics Data Model
 
@@ -215,8 +131,6 @@ erDiagram
 	sales }|..|| customer : "customer_id"
 	sales }|..|| location : "location_id"
 	sales }|..|| product : "product_id"
-	sales }|..|| LocalDateTable_bd78f57f-f782-49cb-bedf-842bb2cba595 : "order_date"
-	sales }|..|| LocalDateTable_752f2240-7e55-461c-a057-b5b99b3a6120 : "ship_date"
 ```
 
 ## Table Details
@@ -257,5 +171,3 @@ erDiagram
 - sales.customer_id → customer.customer_id
 - sales.location_id → location.location_id
 - sales.product_id → product.product_id
-- sales.order_date → LocalDateTable_bd78f57f-f782-49cb-bedf-842bb2cba595.Date
-- sales.ship_date → LocalDateTable_752f2240-7e55-461c-a057-b5b99b3a6120.Date
