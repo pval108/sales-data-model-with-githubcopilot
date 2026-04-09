@@ -1,336 +1,300 @@
 # Target Schema Automation
 
-## Overview
+## Objective
 
-This session focused on designing and executing a target SQL schema based on `[superstore].[dbo].[sales]`.
+Analyze `[superstore].[dbo].[sales]` using only the source table data, derive a normalized target model under the `store` schema, create the tables, and validate the result.
 
-The final intended target schema is `store`.
+## Source-Only Analysis Summary
 
----
+The source table was analyzed directly with SQL Server queries against `[superstore].[dbo].[sales]`.
 
-## Data Model and SQL Work
+### Cardinality Findings
 
-### Source reviewed
-- `sales.sql`
-- `SalesModelDocumentation.md`
+| Metric | Value |
+| --- | ---: |
+| Source rows | 9,800 |
+| Distinct orders | 4,922 |
+| Distinct customers | 793 |
+| Distinct source product IDs | 1,861 |
+| Distinct product variants by `(Product_ID, Product_Name, Category, Sub_Category)` | 1,893 |
+| Distinct postal codes | 627 |
+| Distinct locations by `(Country, Region, State, City, Postal_Code)` | 628 |
 
-### What was derived from the source
-- Source table: `[superstore].[dbo].[sales]`
-- Core analytical entities identified:
-  - `product`
-  - `customer`
-  - `location`
-  - `sales` fact table
+### Functional Dependency Checks
 
-### Target design implemented
-A star schema was created under the `store` schema with these tables:
+| Dependency tested | Violations | Result |
+| --- | ---: | --- |
+| `Customer_ID -> Customer_Name, Segment` | 0 | Safe customer natural key |
+| `Order_ID -> Order_Date, Ship_Date, Ship_Mode, Customer_ID` | 0 | Safe order header natural key |
+| `Postal_Code -> City, State, Country, Region` | 1 | Not safe as a standalone location key |
+| `Product_ID -> Product_Name, Category, Sub_Category` | 32 | Not safe as a standalone product key |
 
-#### `store.product`
-- `product_id` as integer surrogate key
-- `category`
-- `sub_category`
-- `product_name`
+### Exceptions That Drove the Design
 
-#### `store.customer`
-- `customer_id` as integer surrogate key
-- `customer_key` as the source business key
+1. `Postal_Code = 92024` maps to both `Encinitas, California` and `San Diego, California`, so postal code alone cannot identify a location.
+2. `Product_ID` is not stable enough to identify a single product description. Example: `FUR-BO-10002213` maps to both `DMI Eclipse Executive Suite Bookcases` and `Sauder Forest Hills Library, Woodland Oak Finish`.
+3. `Order_ID` behaves like a clean order header key, while `Row_ID` is unique at the line-item level.
+
+## Target Model Chosen
+
+Based on those findings, the source table was decomposed into five tables:
+
+### `store.customer`
+
+One row per customer.
+
+Columns:
+
+- `customer_key` as surrogate primary key
+- `source_customer_id` as unique business key
 - `customer_name`
 - `segment`
 
-#### `store.location`
-- `location_id` as integer surrogate key
-- `country`
-- `city`
-- `state`
-- `postal_code`
-- `region`
+### `store.location`
 
-#### `store.sales`
-- `sales_id` mapped from source `Row_ID`
-- `order_id`
+One row per distinct `(country, region, state, city, postal_code)` combination.
+
+Columns:
+
+- `location_key` as surrogate primary key
+- `country`
+- `region`
+- `state`
+- `city`
+- `postal_code`
+
+Reason: postal code alone was not unique in the source.
+
+### `store.product`
+
+One row per distinct `(source_product_id, product_name, category, sub_category)` combination.
+
+Columns:
+
+- `product_key` as surrogate primary key
+- `source_product_id`
+- `product_name`
+- `category`
+- `sub_category`
+
+Reason: source product ID alone was not stable in the source data, so the target preserves product variants instead of forcing a guessed canonical product.
+
+### `store.order_header`
+
+One row per order.
+
+Columns:
+
+- `order_id` as primary key
 - `order_date`
 - `ship_date`
 - `ship_mode`
-- `product_id`
-- `customer_id`
-- `location_id`
-- `sales`
+- `customer_key` as foreign key to `store.customer`
+- `location_key` as foreign key to `store.location`
 
-### Supporting implementation details
-- Added primary keys on all tables.
-- Added foreign keys from `store.sales` to the three dimensions.
-- Added uniqueness constraints to dimension business attributes.
-- Added indexes on key fact table lookup columns.
-- Used deterministic joins from source attributes to generated surrogate keys.
+### `store.order_line`
 
----
+One row per source sale row.
 
-## Files Created or Updated
+Columns:
 
-### Created
-- `target_schema.sql`
-- `TargetSchemaAutomation.md`
+- `source_row_id` as primary key
+- `order_id` as foreign key to `store.order_header`
+- `product_key` as foreign key to `store.product`
+- `sales_amount`
 
-### Updated
-- `SalesModelDocumentation.md`
+## Relationships Identified
 
----
+1. `store.customer (1) -> (many) store.order_header`
+2. `store.location (1) -> (many) store.order_header`
+3. `store.order_header (1) -> (many) store.order_line`
+4. `store.product (1) -> (many) store.order_line`
 
-## SQL Execution Steps
+This produces a normalized structure where order-level attributes live once in `store.order_header` and product/customer/location attributes are separated into their own entities.
 
-### Environment discovery
-- Discovered a saved SQL Server instance:
-  - `.\sqlexpress`
-- Confirmed the `superstore` database exists.
-- Confirmed `sqlcmd` is installed locally.
+## Implementation Steps Executed
 
-### SQL connectivity notes
-- The first command-line execution attempt failed because the ODBC 18 client enforced certificate validation.
-- The script was rerun successfully with trusted certificate mode enabled.
+### 1. Verified the source table and measured source dependencies
 
-### Execution command used
-```powershell
-& "C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\180\Tools\Binn\SQLCMD.EXE" -S ".\sqlexpress" -E -C -d "superstore" -b -i "c:\Users\pbv01\Desktop\sales project\target_schema.sql"
-```
+The source was inspected with aggregate queries to test whether candidate business keys were stable.
 
-### Final row counts returned by the script
-```text
-product   1849
-customer   793
-location   628
-sales     9800
-```
+### 2. Reused the existing `store` schema
 
-### Result
-- The `store` schema tables were created and loaded successfully in the `superstore` database.
+The database already contained a `store` schema, but it did not contain any `store.*` tables. The new tables were created there.
 
----
+### 3. Created the target tables
 
-## Documentation Updates
+The following tables were created:
 
-`SalesModelDocumentation.md` was updated to align with the implemented model:
-- The target schema reference was updated to `store`.
-- Surrogate keys were documented as integers.
-- `postal_code` was documented as text.
-- Fact table date columns were documented as `date`.
+- `store.customer`
+- `store.location`
+- `store.product`
+- `store.order_header`
+- `store.order_line`
 
----
+Primary keys, unique constraints, foreign keys, and supporting indexes were added as part of creation.
 
-## End State
+### 4. Loaded the target tables from `dbo.sales`
 
-At the end of the session:
+Load logic used only distinct source rows and verified dependencies:
 
-- A clean target schema build script exists in `target_schema.sql`.
-- The target analytical schema is `store`.
-- The schema was executed successfully against `.\sqlexpress` in the `superstore` database.
-- The project documentation now reflects the intended target model.
+- customers loaded from grouped `Customer_ID`
+- locations loaded from distinct location attribute combinations
+- products loaded from distinct product attribute combinations
+- order headers loaded from distinct order-level combinations
+- order lines loaded one-for-one from source `Row_ID`
 
----
+### 5. Validated the result
 
-## Entity Relationship Diagram
+Final row counts matched the expected grains.
 
-```mermaid
-erDiagram
-  product {
-    int product_id PK
-    string category
-    string sub_category
-    string product_name
-  }
-  customer {
-    int customer_id PK
-    string customer_key
-    string customer_name
-    string segment
-  }
-  location {
-    int location_id PK
-    string country
-    string city
-    string state
-    string postal_code
-    string region
-  }
-  sales {
-    int sales_id PK
-    string order_id
-    date order_date
-    date ship_date
-    string ship_mode
-    int product_id FK
-    int customer_id FK
-    int location_id FK
-    decimal sales
-  }
-  sales }|..|| product : "product_id"
-  sales }|..|| customer : "customer_id"
-  sales }|..|| location : "location_id"
-```
+| Target table | Row count |
+| --- | ---: |
+| `store.customer` | 793 |
+| `store.location` | 628 |
+| `store.product` | 1,893 |
+| `store.order_header` | 4,922 |
+| `store.order_line` | 9,800 |
 
----
-
-## SQL Script Used
-
-The following script was used to create and load the target `store` schema:
+## Source Analysis SQL Used Before the Build Script
 
 ```sql
 SET NOCOUNT ON;
 
-/*
-  Target star schema build script for [superstore].[dbo].[sales]
-  - Creates schema [store] if needed
-  - Rebuilds dimension and fact tables
-  - Loads data from the source table using business-key mappings
-*/
+SELECT
+    COUNT(*) AS total_rows,
+    COUNT(DISTINCT Order_ID) AS distinct_orders,
+    COUNT(DISTINCT Customer_ID) AS distinct_customers,
+    COUNT(DISTINCT Product_ID) AS distinct_products,
+    COUNT(DISTINCT Postal_Code) AS distinct_postal_codes
+FROM dbo.sales;
 
-IF NOT EXISTS (
-  SELECT 1
-  FROM sys.schemas
-  WHERE name = 'store'
+SELECT COUNT(*) AS violating_customer_ids
+FROM (
+    SELECT Customer_ID
+    FROM dbo.sales
+    GROUP BY Customer_ID
+    HAVING COUNT(DISTINCT Customer_Name) > 1
+        OR COUNT(DISTINCT Segment) > 1
+) AS customer_fd;
+
+SELECT COUNT(*) AS violating_product_ids
+FROM (
+    SELECT Product_ID
+    FROM dbo.sales
+    GROUP BY Product_ID
+    HAVING COUNT(DISTINCT Product_Name) > 1
+        OR COUNT(DISTINCT Category) > 1
+        OR COUNT(DISTINCT Sub_Category) > 1
+) AS product_fd;
+
+SELECT COUNT(*) AS violating_orders
+FROM (
+    SELECT Order_ID
+    FROM dbo.sales
+    GROUP BY Order_ID
+    HAVING COUNT(DISTINCT Order_Date) > 1
+        OR COUNT(DISTINCT Ship_Date) > 1
+        OR COUNT(DISTINCT Ship_Mode) > 1
+        OR COUNT(DISTINCT Customer_ID) > 1
+) AS order_fd;
+
+SELECT COUNT(*) AS violating_postal_codes
+FROM (
+    SELECT Postal_Code
+    FROM dbo.sales
+    GROUP BY Postal_Code
+    HAVING COUNT(DISTINCT City) > 1
+        OR COUNT(DISTINCT State) > 1
+        OR COUNT(DISTINCT Country) > 1
+        OR COUNT(DISTINCT Region) > 1
+) AS postal_fd;
+
+SELECT
+    COUNT(*) AS distinct_locations
+FROM (
+    SELECT DISTINCT Country, Region, State, City, Postal_Code
+    FROM dbo.sales
+) AS location_grain;
+
+SELECT
+    COUNT(*) AS distinct_products_composite
+FROM (
+    SELECT DISTINCT Product_ID, Product_Name, Category, Sub_Category
+    FROM dbo.sales
+) AS product_grain;
+
+SELECT
+    COUNT(*) AS distinct_order_headers
+FROM (
+    SELECT DISTINCT Order_ID, Order_Date, Ship_Date, Ship_Mode, Customer_ID, Country, Region, State, City, Postal_Code
+    FROM dbo.sales
+) AS order_header_grain;
+
+SELECT Postal_Code, City, State, Country, Region
+FROM dbo.sales
+WHERE Postal_Code = 92024
+GROUP BY Postal_Code, City, State, Country, Region
+ORDER BY City;
+
+SELECT Product_ID, Product_Name, COUNT(*) AS row_count
+FROM dbo.sales
+WHERE Product_ID IN (
+    SELECT Product_ID
+    FROM dbo.sales
+    GROUP BY Product_ID
+    HAVING COUNT(DISTINCT Product_Name) > 1
 )
-BEGIN
-  EXEC('CREATE SCHEMA store');
-END;
-GO
+GROUP BY Product_ID, Product_Name
+ORDER BY Product_ID, row_count DESC;
+```
 
-DROP TABLE IF EXISTS store.sales;
-DROP TABLE IF EXISTS store.product;
-DROP TABLE IF EXISTS store.customer;
-DROP TABLE IF EXISTS store.location;
-GO
+## DDL Shape Applied
 
-CREATE TABLE store.product (
-  product_id INT IDENTITY(1, 1) NOT NULL,
-  category NVARCHAR(100) NOT NULL,
-  sub_category NVARCHAR(100) NOT NULL,
-  product_name NVARCHAR(255) NOT NULL,
-  CONSTRAINT PK_store_product PRIMARY KEY CLUSTERED (product_id),
-  CONSTRAINT UQ_store_product UNIQUE (category, sub_category, product_name)
-);
-
+```sql
 CREATE TABLE store.customer (
-  customer_id INT IDENTITY(1, 1) NOT NULL,
-  customer_key NVARCHAR(50) NOT NULL,
-  customer_name NVARCHAR(150) NOT NULL,
-  segment NVARCHAR(50) NOT NULL,
-  CONSTRAINT PK_store_customer PRIMARY KEY CLUSTERED (customer_id),
-  CONSTRAINT UQ_store_customer UNIQUE (customer_key)
+    customer_key INT IDENTITY(1,1) PRIMARY KEY,
+    source_customer_id NVARCHAR(50) NOT NULL UNIQUE,
+    customer_name NVARCHAR(50) NOT NULL,
+    segment NVARCHAR(50) NOT NULL
 );
 
 CREATE TABLE store.location (
-  location_id INT IDENTITY(1, 1) NOT NULL,
-  country NVARCHAR(100) NOT NULL,
-  city NVARCHAR(100) NOT NULL,
-  state NVARCHAR(100) NOT NULL,
-  postal_code NVARCHAR(20) NOT NULL,
-  region NVARCHAR(100) NOT NULL,
-  CONSTRAINT PK_store_location PRIMARY KEY CLUSTERED (location_id),
-  CONSTRAINT UQ_store_location UNIQUE (country, city, state, postal_code, region)
+    location_key INT IDENTITY(1,1) PRIMARY KEY,
+    country NVARCHAR(50) NOT NULL,
+    region NVARCHAR(50) NOT NULL,
+    state NVARCHAR(50) NOT NULL,
+    city NVARCHAR(50) NOT NULL,
+    postal_code INT NULL,
+    UNIQUE (country, region, state, city, postal_code)
 );
 
-CREATE TABLE store.sales (
-  sales_id INT NOT NULL,
-  order_id NVARCHAR(30) NOT NULL,
-  order_date DATE NOT NULL,
-  ship_date DATE NULL,
-  ship_mode NVARCHAR(50) NOT NULL,
-  product_id INT NOT NULL,
-  customer_id INT NOT NULL,
-  location_id INT NOT NULL,
-  sales DECIMAL(18, 2) NOT NULL,
-  CONSTRAINT PK_store_sales PRIMARY KEY CLUSTERED (sales_id),
-  CONSTRAINT FK_store_sales_product FOREIGN KEY (product_id) REFERENCES store.product (product_id),
-  CONSTRAINT FK_store_sales_customer FOREIGN KEY (customer_id) REFERENCES store.customer (customer_id),
-  CONSTRAINT FK_store_sales_location FOREIGN KEY (location_id) REFERENCES store.location (location_id)
+CREATE TABLE store.product (
+    product_key INT IDENTITY(1,1) PRIMARY KEY,
+    source_product_id NVARCHAR(50) NOT NULL,
+    product_name NVARCHAR(150) NOT NULL,
+    category NVARCHAR(50) NOT NULL,
+    sub_category NVARCHAR(50) NOT NULL,
+    UNIQUE (source_product_id, product_name, category, sub_category)
 );
-GO
 
-INSERT INTO store.product (category, sub_category, product_name)
-SELECT DISTINCT
-  src.Category,
-  src.Sub_Category,
-  src.Product_Name
-FROM superstore.dbo.sales AS src
-WHERE src.Product_Name IS NOT NULL;
+CREATE TABLE store.order_header (
+    order_id NVARCHAR(50) PRIMARY KEY,
+    order_date DATE NOT NULL,
+    ship_date DATE NOT NULL,
+    ship_mode NVARCHAR(50) NOT NULL,
+    customer_key INT NOT NULL REFERENCES store.customer(customer_key),
+    location_key INT NOT NULL REFERENCES store.location(location_key)
+);
 
-INSERT INTO store.customer (customer_key, customer_name, segment)
-SELECT DISTINCT
-  src.Customer_ID,
-  src.Customer_Name,
-  src.Segment
-FROM superstore.dbo.sales AS src
-WHERE src.Customer_ID IS NOT NULL;
-
-INSERT INTO store.location (country, city, state, postal_code, region)
-SELECT DISTINCT
-  src.Country,
-  src.City,
-  src.State,
-  CAST(src.Postal_Code AS NVARCHAR(20)),
-  src.Region
-FROM superstore.dbo.sales AS src
-WHERE src.Postal_Code IS NOT NULL;
-
-INSERT INTO store.sales (
-  sales_id,
-  order_id,
-  order_date,
-  ship_date,
-  ship_mode,
-  product_id,
-  customer_id,
-  location_id,
-  sales
-)
-SELECT
-  src.Row_ID,
-  src.Order_ID,
-  CAST(src.Order_Date AS DATE),
-  CAST(src.Ship_Date AS DATE),
-  src.Ship_Mode,
-  prod.product_id,
-  cust.customer_id,
-  loc.location_id,
-  CAST(src.Sales AS DECIMAL(18, 2))
-FROM superstore.dbo.sales AS src
-INNER JOIN store.product AS prod
-  ON prod.category = src.Category
-   AND prod.sub_category = src.Sub_Category
-   AND prod.product_name = src.Product_Name
-INNER JOIN store.customer AS cust
-  ON cust.customer_key = src.Customer_ID
-INNER JOIN store.location AS loc
-  ON loc.country = src.Country
-   AND loc.city = src.City
-   AND loc.state = src.State
-   AND loc.postal_code = CAST(src.Postal_Code AS NVARCHAR(20))
-   AND loc.region = src.Region;
-GO
-
-CREATE INDEX IX_store_sales_order_id ON store.sales (order_id);
-CREATE INDEX IX_store_sales_order_date ON store.sales (order_date);
-CREATE INDEX IX_store_sales_product_id ON store.sales (product_id);
-CREATE INDEX IX_store_sales_customer_id ON store.sales (customer_id);
-CREATE INDEX IX_store_sales_location_id ON store.sales (location_id);
-GO
-
-SELECT
-  'product' AS table_name,
-  COUNT(*) AS row_count
-FROM store.product
-UNION ALL
-SELECT
-  'customer' AS table_name,
-  COUNT(*) AS row_count
-FROM store.customer
-UNION ALL
-SELECT
-  'location' AS table_name,
-  COUNT(*) AS row_count
-FROM store.location
-UNION ALL
-SELECT
-  'sales' AS table_name,
-  COUNT(*) AS row_count
-FROM store.sales;
+CREATE TABLE store.order_line (
+    source_row_id SMALLINT PRIMARY KEY,
+    order_id NVARCHAR(50) NOT NULL REFERENCES store.order_header(order_id),
+    product_key INT NOT NULL REFERENCES store.product(product_key),
+    sales_amount DECIMAL(19,2) NOT NULL
+);
 ```
+
+## Outcome
+
+The `dbo.sales` source table was analyzed directly and decomposed into a normalized `store` target schema with enforced relationships and loaded data. The design intentionally preserves source data anomalies instead of inventing undocumented cleanup rules.
