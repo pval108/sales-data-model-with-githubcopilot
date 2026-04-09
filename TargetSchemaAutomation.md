@@ -1,4 +1,4 @@
-# Conversation Summary
+# Target Schema Automation
 
 ## Overview
 
@@ -69,7 +69,7 @@ A star schema was created under the `store` schema with these tables:
 
 ### Created
 - `target_schema.sql`
-- `ConversationSummary.md`
+- `TargetSchemaAutomation.md`
 
 ### Updated
 - `SalesModelDocumentation.md`
