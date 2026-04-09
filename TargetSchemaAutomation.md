@@ -112,6 +112,52 @@ Columns:
 
 This produces a normalized structure where order-level attributes live once in `store.order_header` and product/customer/location attributes are separated into their own entities.
 
+## ERD
+
+```mermaid
+erDiagram
+    customer {
+        int customer_key PK
+        string source_customer_id UK
+        string customer_name
+        string segment
+    }
+    location {
+        int location_key PK
+        string country
+        string region
+        string state
+        string city
+        int postal_code
+    }
+    product {
+        int product_key PK
+        string source_product_id
+        string product_name
+        string category
+        string sub_category
+    }
+    order_header {
+        string order_id PK
+        date order_date
+        date ship_date
+        string ship_mode
+        int customer_key FK
+        int location_key FK
+    }
+    order_line {
+        int source_row_id PK
+        string order_id FK
+        int product_key FK
+        decimal sales_amount
+    }
+
+    customer ||--o{ order_header : places
+    location ||--o{ order_header : ships_to
+    order_header ||--o{ order_line : contains
+    product ||--o{ order_line : references
+```
+
 ## Implementation Steps Executed
 
 ### 1. Verified the source table and measured source dependencies
